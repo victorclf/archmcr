@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+'''
+This script prepares the data for the binary classifier of design discussions. It mainly does two things:
+(1) concatenates all reviews with more than one comment into a single .csv file (Easier to select a random sample for training and for passing as input to the automatic classifier later).
+(2) merges DiffComment with their associated ReplyDiffComment (this is because it is hard to understand ReplyDiffComment separated from their original thread of discussion).
+'''
+
 import os
 import csv
 import sys
@@ -52,21 +58,6 @@ def countCSVRows(csvPath):
 				# ~ #eprint('%s %d' % (f, numRows))
 				# ~ csvFiles[numRows] = csvFiles.get(numRows, 0) + 1
 	# ~ return csvFiles
-	
-
-def mergeCSV(csvFilePaths, outputPath):
-	for csvPath in csvFilePaths:
-		if os.path.exists(csvPath):
-			with open(csvPath, 'r') as fin:
-				headerLine = fin.readline()
-				
-				if not os.path.exists(outputPath):
-					with open(outputPath, 'w') as fout:
-						fout.write(headerLine)
-				
-				with open(outputPath, 'a') as fout:
-					for line in fin:
-						fout.write(line)
 						
 
 def getReviewsWithMultipleComments():
@@ -77,13 +68,51 @@ def getReviewsWithMultipleComments():
 				csvPath = os.path.join(root, f)
 				numComments = countCSVRows(csvPath)
 				if numComments > 1:
-					eprint(f)
 					csvFiles.append(csvPath)
 	return csvFiles
+
+
+def readCSVRowsAsDict(csvPath):
+	with open(csvPath, 'r') as fin:
+		dcfin = csv.DictReader(x.replace('\0', '') for x in fin) #ignore NULL bytes, which crash the csv.reader
+		return [row for row in dcfin]
+			
+
+def mergeDiffCommentsWithReplies(rows):
+	mergedRows = []
+	for row in rows:
+		if mergedRows and row['type'] == 'ReplyDiffComment' and mergedRows[-1]['type'] == 'DiffComment':
+			mergedRows[-1]['text'] += '\n\n' + row['text']
+		else:
+			mergedRows.append(row)
+	return mergedRows
+
+
+def createCombinedCSV(outputPath):
+	with open(outputPath, 'w') as fout:
+		fout.write(','.join(CSV_FIELDS))
+		fout.write('\n')
+
+
+def appendToCombinedCSV(outputPath, rows):
+	with open(outputPath, 'a') as fout:
+		dcfout = csv.DictWriter(fout, fieldnames=CSV_FIELDS)
+		for row in rows:
+			dcfout.writerow(row)
 
 
 if __name__ == '__main__':
 	# ~ rowCounts = analyze()
 	# ~ for r in sorted(rowCounts):
 		# ~ print(r, rowCounts[r])
-	mergeCSV(getReviewsWithMultipleComments(), OUTPUT_PATH)
+		
+	if os.path.exists(OUTPUT_PATH):
+		raise Exception("Error: Output file already exists.")
+	createCombinedCSV(OUTPUT_PATH)
+	eprint('Selecting reviews with multiple comments...')
+	reviewPaths = getReviewsWithMultipleComments()
+	for path in reviewPaths:
+		eprint('Processing', path)
+		rows = readCSVRowsAsDict(path)
+		rows = mergeDiffCommentsWithReplies(rows)
+		appendToCombinedCSV(OUTPUT_PATH, rows)
