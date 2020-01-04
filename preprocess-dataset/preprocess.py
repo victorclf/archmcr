@@ -78,11 +78,43 @@ def readCSVRowsAsDict(csvPath):
 		return [row for row in dcfin]
 			
 
+''' 
+Merge ReplyDiffComment nodes with parent DiffComment.
+'''
 def mergeDiffCommentsWithReplies(rows):
 	mergedRows = []
 	for row in rows:
 		if mergedRows and row['type'] == 'ReplyDiffComment' and mergedRows[-1]['type'] == 'DiffComment':
 			mergedRows[-1]['text'] += '\n\n' + row['text']
+		else:
+			mergedRows.append(row)
+	return mergedRows
+	
+''' 
+Merge Review.reply.body_top nodes with parent Review.body_top.
+'''
+def mergeReviewReplyBodyTop(rows):
+	mergedRows = []
+	for row in rows:
+		if mergedRows and row['type'] == 'Review.reply.body_top' and mergedRows[-1]['type'] == 'Review.body_top':
+			mergedRows[-1]['text'] += '\n\n' + row['text']
+		else:
+			mergedRows.append(row)
+	return mergedRows
+
+
+''' 
+Merge Review.reply.body_bottom nodes with parent Review.body_bottom.
+'''
+def mergeReviewReplyBodyBottom(rows):
+	mergedRows = []
+	for row in rows:
+		if mergedRows and row['type'] == 'Review.reply.body_bottom' and mergedRows[-1]['type'] == 'Review.reply.body_bottom':
+			mergedRows[-1]['text'] += '\n\n' + row['text']
+		elif mergedRows and row['type'] == 'Review.body_bottom' and mergedRows[-1]['type'] == 'Review.reply.body_bottom':
+			row['text'] += '\n\n' + mergedRows[-1]['text']
+			mergedRows.pop()
+			mergedRows.append(row)
 		else:
 			mergedRows.append(row)
 	return mergedRows
@@ -111,8 +143,11 @@ if __name__ == '__main__':
 	createCombinedCSV(OUTPUT_PATH)
 	eprint('Selecting reviews with multiple comments...')
 	reviewPaths = getReviewsWithMultipleComments()
+	#reviewPaths = [os.path.join(DATASET_FOLDER, 'review-11983.csv')]
 	for path in reviewPaths:
 		eprint('Processing', path)
 		rows = readCSVRowsAsDict(path)
 		rows = mergeDiffCommentsWithReplies(rows)
+		rows = mergeReviewReplyBodyTop(rows)
+		rows = mergeReviewReplyBodyBottom(rows)
 		appendToCombinedCSV(OUTPUT_PATH, rows)
