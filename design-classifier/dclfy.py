@@ -5,10 +5,14 @@ import csv
 import pandas
 import spacy
 import sklearn
+import sklearn.ensemble
 import sklearn.feature_extraction
+import sklearn.linear_model
 import sklearn.model_selection
-import sklearn.pipeline
 import sklearn.naive_bayes
+import sklearn.neighbors
+import sklearn.neural_network
+import sklearn.pipeline
 import sklearn.svm
 import sklearn.tree
 
@@ -59,16 +63,16 @@ def main():
     X = df['text']
     y = df['isDesign']
 
-    decisionTreeClassifier = sklearn.tree.DecisionTreeClassifier(max_depth=10)
+    decisionTreeClassifier = sklearn.tree.DecisionTreeClassifier(max_depth=15)
     decisionTreePipe = sklearn.pipeline.Pipeline([
         # ("cleaner", predictors()),
         ('vectorizer', tfidfVectorizer),
         ('classifier', decisionTreeClassifier)])
 
-    naiveBayesClassifier = sklearn.naive_bayes.GaussianNB()
-    naiveBayesPipe = sklearn.pipeline.Pipeline([
+    rfClassifier = sklearn.ensemble.RandomForestClassifier(n_estimators=100)
+    rfPipe = sklearn.pipeline.Pipeline([
         ('vectorizer', tfidfVectorizer),
-        ('classifier', naiveBayesClassifier)])
+        ('classifier', rfClassifier)])
 
     mnNaiveBayesClassifier = sklearn.naive_bayes.MultinomialNB()
     mnNaiveBayesPipe = sklearn.pipeline.Pipeline([
@@ -80,32 +84,61 @@ def main():
         ('vectorizer', tfidfVectorizer),
         ('classifier', linearSvcClassifier)])
 
-    pipes = {'decisionTreePipe': decisionTreePipe,
-             'gaussNaiveBayesPipe': naiveBayesPipe,
-             'mnNaiveBayesPipe': mnNaiveBayesPipe,
-             'linearSvcPipe': linearSvcPipe}
+    gbcClassifier = sklearn.ensemble.GradientBoostingClassifier()
+    gbcPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', gbcClassifier)])
 
-    # # XXX random_state is a fixed number
-    # X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.2, random_state=42)
+    logRegClassifier = sklearn.linear_model.LogisticRegression()
+    logRegPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', logRegClassifier)])
+
+    mlpClassifier = sklearn.neural_network.MLPClassifier()
+    mlpPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', mlpClassifier)])
+
+    pipes = {'Decision Tree': decisionTreePipe,
+             'Random Forest': rfPipe,
+             'Multinomial Naive Bayes': mnNaiveBayesPipe,
+             'Linear SVC': linearSvcPipe,
+             'GBC': gbcPipe,
+             'Logistic Regression': logRegPipe,
+             'Multi-layer Perceptron': mlpPipe,
+             }
+
+    # TEST
+    # pipe = rfPipe
+    # X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.1, random_state=40)
     # pipe.fit(X_train, y_train)
-    # sample_prediction = pipe.predict(X_test)
-    #
-    # for (sample, pred) in zip(X_test, sample_prediction):
-    #     print(sample[:50], "Prediction=>", pred)
     #
     # print("pipe.score(X_test, y_test): ", pipe.score(X_test, y_test))
-    # print("pipe.score(X_test, sample_prediction): ", pipe.score(X_test, sample_prediction))
     # print("pipe.score(X_train, y_train): ", pipe.score(X_train, y_train))
+    #
+    # y_test_pred = pipe.predict(X_test)
+    # y_train_pred = pipe.predict(X_train)
+    #
+    # print("precision_score(y_test, y_test_pred)", sklearn.metrics.precision_score(y_test, y_test_pred))
+    # print("precision_score(y_train, y_train_pred)", sklearn.metrics.precision_score(y_train, y_train_pred))
+    # print("recall_score(y_test, y_test_pred)", sklearn.metrics.recall_score(y_test, y_test_pred))
+    # print("recall_score(y_train, y_train_pred)", sklearn.metrics.recall_score(y_train, y_train_pred))
+    # print("roc_auc_score(y_test, y_test_pred)", sklearn.metrics.roc_auc_score(y_test, y_test_pred))
+    # print("roc_auc_score(y_train, y_train_pred)", sklearn.metrics.roc_auc_score(y_train, y_train_pred))
 
-    print('Running cross validation on models...')
     for pipeName in pipes:
-        scores = sklearn.model_selection.cross_validate(pipes[pipeName], X, y, cv=5,
-                                                        scoring=['accuracy', 'precision', 'recall', 'f1'],
-                                                        return_train_score=True)
         print('Scores for %s:' % pipeName)
+
+        scores = sklearn.model_selection.cross_validate(pipes[pipeName], X, y, cv=5,
+                                                        scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
+                                                        return_train_score=True)
+
         for k in scores:
-            print(k, scores[k])
+            print("%s: %0.3f (+/- %0.3f)" % (k, scores[k].mean(), scores[k].std() * 2))
         print()
+
+        #XXX Clear reference to classifier to free memory
+        pipes[pipeName] = None
 
 
 if __name__ == '__main__':
