@@ -2,6 +2,7 @@
 
 import os
 import csv
+import joblib
 import pandas
 import spacy
 import sklearn
@@ -16,9 +17,11 @@ import sklearn.pipeline
 import sklearn.svm
 import sklearn.tree
 
+
 CSV_FIELDS = ['reviewRequestId', 'repository', 'reviewRequestSubmitter', 'reviewId', 'diffCommentId', 'replyId',
               'replyDiffCommentId', 'type',  'username', 'timestamp', 'text', 'isDesign', 'concept', 'hadToLookAtCode']
-DATASET_PATH = '../training-data/discussions-sample-1000-annotated.csv'
+TRAINING_DATASET_PATH = '../training-data/discussions-sample-1000-annotated.csv'
+DATASET_PATH = '../preprocess-dataset/output/reviews.csv'
 
 
 def getTokensAndLemmas(nlp, text):
@@ -29,8 +32,8 @@ def getTokensAndLemmas(nlp, text):
     return tokens
 
 
-def loadDataset():
-    return pandas.read_csv(DATASET_PATH)
+def loadTrainingDataset():
+    return pandas.read_csv(TRAINING_DATASET_PATH)
 
 
 def loadSpacy():
@@ -40,10 +43,6 @@ def loadSpacy():
 def preprocess(df):
     # df = df[~df['username'].isin(['asfbot', 'aurorabot', 'mesos-review', 'mesos-review-windows'])]
     return df
-
-
-def createCountVectorizer(tokenizer):
-    return sklearn.feature_extraction.text.CountVectorizer(tokenizer=tokenizer, ngram_range=(1, 2))
 
 
 def createTfidfVectorizer(tokenizer):
@@ -129,48 +128,75 @@ def compareDefaultModels(X, y, tfidfVectorizer):
         pipes[pipeName] = None
 
 
-def compareBestModels(X, y, tfidfVectorizer):
+def searchBestParameters(X, y, tfidfVectorizer):
     linearSvcPipe = sklearn.pipeline.Pipeline([
         ('vectorizer', tfidfVectorizer),
         ('classifier', sklearn.svm.LinearSVC())
     ])
-    linearSvcParams = {'classifier__C': [0.1, 0.9, 1, 1.1, 2],
-                  'classifier__loss': ['hinge', 'squared_hinge'],
-                  # 'classifier_dual': [False, True],
-                  'classifier__tol': [1e-2, 1e-4],
-                  'classifier__max_iter': [1000, 10000]}
+    # linearSvcParams = {'classifier__C': [0.1, 0.9, 1, 1.1, 2],
+    #               'classifier__loss': ['hinge', 'squared_hinge'],
+    #               # 'classifier_dual': [False, True],
+    #               'classifier__tol': [1e-2, 1e-4],
+    #               'classifier__max_iter': [1000, 10000]}
+    # linearSvcParams = {'classifier__C': [1.05, 1.1, 1.2, 1.5],
+    #                    'classifier__loss': ['hinge'],
+    #                    'classifier__tol': [1e-1, 1e-2],
+    #                    'classifier__max_iter': [1000, 1200]}
+    linearSvcParams = {'classifier__C': [1.025, 1.05, 1.075],
+                       'classifier__loss': ['hinge'],
+                       'classifier__tol': [0.75, 0.5, 0.2, 0.15, 1e-1],
+                       'classifier__max_iter': [1000]}
 
     mlpPipe = sklearn.pipeline.Pipeline([
         ('vectorizer', tfidfVectorizer),
         ('classifier', sklearn.neural_network.MLPClassifier())
     ])
-    mlpParams = {'classifier__solver': ['adam', 'lbfgs'],
-                 'classifier__hidden_layer_sizes': [(50, 50, 50), (50, 100, 50), (100,)],
-                 'classifier__activation': ['tanh', 'relu'],
-                 # 'classifier__max_iter': [100, 200, 300],
-                 # 'classifier__alpha': [0.0001, 0.05],
-                 'classifier__learning_rate': ['constant', 'adaptive'],
+    # mlpParams = {'classifier__solver': ['adam', 'lbfgs'],
+    #              'classifier__hidden_layer_sizes': [(50, 50, 50), (50, 100, 50), (100,)],
+    #              'classifier__activation': ['tanh', 'relu'],
+    #              # 'classifier__max_iter': [100, 200, 300],
+    #              # 'classifier__alpha': [0.0001, 0.05],
+    #              'classifier__learning_rate': ['constant', 'adaptive'],
+    #              }
+    # mlpParams = {'classifier__solver': ['adam'],
+    #              'classifier__hidden_layer_sizes': [(50, 100, 50), (100, 100, 100)],
+    #              'classifier__activation': ['tanh'],
+    #              'classifier__learning_rate': ['constant'],
+    #              }
+    mlpParams = {'classifier__solver': ['adam'],
+                 'classifier__hidden_layer_sizes': [(100, 100, 100), (150, 150, 150)],
+                 'classifier__activation': ['tanh'],
+                 'classifier__learning_rate': ['constant'],
                  }
 
     mnNaiveBayesPipe = sklearn.pipeline.Pipeline([
         ('vectorizer', tfidfVectorizer),
         ('classifier', sklearn.naive_bayes.MultinomialNB())
     ])
-    mnNaiveBayesParams = {'classifier__alpha': [0, 0.5, 0.9, 1.0, 1.1, 1.5]}
+    # mnNaiveBayesParams = {'classifier__alpha': [0, 0.01, 0.9, 1.0, 1.1, 1.5]}
+    # mnNaiveBayesParams = {'classifier__alpha': [0, 0.1, 0.01]}
+    mnNaiveBayesParams = {'classifier__alpha': [0.05, 0.1, 0.15]}
 
     logRegPipe = sklearn.pipeline.Pipeline([
         ('vectorizer', tfidfVectorizer),
         ('classifier', sklearn.linear_model.LogisticRegression())
     ])
-    logRegParams = {'classifier__C': [0.1, 0.9, 1, 1.1, 2],
-                    'classifier__solver': ['lbfgs', 'liblinear', 'saga'],
-                    'classifier__max_iter': [100, 200]
+    # logRegParams = {'classifier__C': [0.1, 0.9, 1, 1.1, 2],
+    #                 'classifier__solver': ['lbfgs', 'liblinear', 'saga'],
+    #                 'classifier__max_iter': [100, 200]
+    #                 }
+    # logRegParams = {'classifier__C': [1.9, 2, 2.1, 3, 5, 10],
+    #                 'classifier__solver': ['saga'],
+    #                 }
+    logRegParams = {'classifier__C': [8, 10, 20, 50, 100],
+                    'classifier__solver': ['saga'],
+                    'classifier__max_iter': [1000]
                     }
 
     cvs = {
-        # 'MLP': sklearn.model_selection.GridSearchCV(mlpPipe, mlpParams, cv=5, scoring='f1', return_train_score=True),
-        # 'Multinomial Naive Bayes': sklearn.model_selection.GridSearchCV(mnNaiveBayesPipe, mnNaiveBayesParams, cv=5, scoring='f1', return_train_score=True),
-        # 'Linear SVC': sklearn.model_selection.GridSearchCV(linearSvcPipe, linearSvcParams, cv=5, scoring='f1', return_train_score=True),
+        'Linear SVC': sklearn.model_selection.GridSearchCV(linearSvcPipe, linearSvcParams, cv=5, scoring='f1', return_train_score=True),
+        'MLP': sklearn.model_selection.GridSearchCV(mlpPipe, mlpParams, cv=5, scoring='f1', return_train_score=True),
+        'Multinomial Naive Bayes': sklearn.model_selection.GridSearchCV(mnNaiveBayesPipe, mnNaiveBayesParams, cv=5, scoring='f1', return_train_score=True),
         'Logistic Regression': sklearn.model_selection.GridSearchCV(logRegPipe, logRegParams, cv=5, scoring='f1', return_train_score=True),
     }
 
@@ -182,40 +208,116 @@ def compareBestModels(X, y, tfidfVectorizer):
         print("cv.best_score_", cvs[cvName].best_score_)
         print("cv.best_params_", cvs[cvName].best_params_)
 
-        #XXX Clear reference to classifier to free memory
+        #FIXME Clear reference to classifier to free memory
         cvs[cvName] = None
+
+
+def buildBestModels(tfidfVectorizer):
+    linearSvcPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', sklearn.svm.LinearSVC(C=1.05, loss='hinge', tol=0.5, max_iter=1000))
+    ])
+
+    mlpPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier',
+         sklearn.neural_network.MLPClassifier(solver='adam', hidden_layer_sizes=(100, 100, 100), activation='tanh',
+                                              learning_rate='constant'))
+    ])
+
+    mnNaiveBayesPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', sklearn.naive_bayes.MultinomialNB(alpha=0.1))
+    ])
+
+    logRegPipe = sklearn.pipeline.Pipeline([
+        ('vectorizer', tfidfVectorizer),
+        ('classifier', sklearn.linear_model.LogisticRegression(C=50, max_iter=1000, solver='saga'))
+    ])
+
+    return {
+        'Linear SVC': linearSvcPipe,
+        'MLP': mlpPipe,
+        'Multinomial Naive Bayes': mnNaiveBayesPipe,
+        'Logistic Regression': logRegPipe,
+    }
+
+
+def compareBestModels(X, y, tfidfVectorizer):
+    pipes = buildBestModels(tfidfVectorizer)
+
+    for pipeName in pipes:
+        print('Scores for %s:' % pipeName)
+
+        scores = sklearn.model_selection.cross_validate(pipes[pipeName], X, y, cv=5,
+                                                        scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
+                                                        return_train_score=True)
+
+        for k in scores:
+            print("%s: %0.3f (+/- %0.3f)" % (k, scores[k].mean(), scores[k].std() * 2))
+        print()
+
+        # FIXME Clear reference to classifier to free memory
+        pipes[pipeName] = None
+
+
+def compareEnsembleOfBestModels(X, y, tfidfVectorizer):
+    estimators = list(buildBestModels(tfidfVectorizer).items())
+    estimators = [x for x in estimators if x[0] != 'Linear SVC'] # LinearSVC crashes the ensemble b/c it doesn't support predict_proba() and decision_function()
+    mergedPipe = sklearn.ensemble.VotingClassifier(estimators=estimators, voting='soft')
+    scores = sklearn.model_selection.cross_validate(mergedPipe, X, y, cv=5,
+                                                    scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'],
+                                                    return_train_score=True)
+    for k in scores:
+        print("%s: %0.3f (+/- %0.3f)" % (k, scores[k].mean(), scores[k].std() * 2))
+
+
+def getModuleVersions():
+    # TODO Do this automatically.
+    return ['joblib ' + joblib.__version__, 'pandas ' + pandas.__version__, 'spacy ' + spacy.__version__,
+            'sklearn ' + sklearn.__version__]
+
+
+def serializeBestModels(X, y, tfidfVectorizer):
+    # TODO: Fix bug with Spacy (see https://stackoverflow.com/questions/53885198/using-spacy-as-tokenizer-in-sklearn-pipeline)
+    raise Exception('not implemented')
+    # for name, pipe in buildBestModels(tfidfVectorizer).items():
+    #     pipe.fit(X, y)
+    #     id_ =  name.lower().replace(' ', '-')
+    #     joblib.dump(pipe, id_ + '.joblib')
+    #     with open(id_ + '.meta', 'w') as fin:
+    #         fin.write('\n'.join(getModuleVersions()))
+
+
+def unserializeModels():
+    models = []
+    for root, dirs, files in os.walk(os.curdir):
+        for f in files:
+            if f.endswith('joblib'):
+                path = os.path.join(root, f)
+                pipe = joblib.load(path)
+                models.append((f.split('.')[0], pipe))
+    return models
 
 
 def main():
     print('Loading dataset...')
-    df = loadDataset()
+    df = loadTrainingDataset()
     df = preprocess(df)
 
     spacyNlp = loadSpacy()
     spacyTokenizer = lambda x: getTokensAndLemmas(spacyNlp, x)
-    # countVectorizer = createCountVectorizer(spacyTokenizer)
     tfidfVectorizer = createTfidfVectorizer(spacyTokenizer)
 
     X = df['text']
     y = df['isDesign']
 
-    #compareDefaultModels(X, y, tfidfVectorizer)
-    compareBestModels(X, y, tfidfVectorizer)
+    # compareDefaultModels(X, y, tfidfVectorizer)
+    # searchBestParameters(X, y, tfidfVectorizer)
+    # compareBestModels(X, y, tfidfVectorizer)
+    # compareEnsembleOfBestModels(X, y, tfidfVectorizer)
+    serializeBestModels(X, y, tfidfVectorizer)
 
 
 if __name__ == '__main__':
     main()
-
-
-# #Custom transformer using spaCy
-# class predictors(TransformerMixin):
-#     def transform(self, X, **transform_params):
-#         return [clean_text(text) for text in X]
-#     def fit(self, X, y=None, **fit_params):
-#         return self
-#     def get_params(self, deep=True):
-#         return {}
-#
-# # Basic function to clean the text
-# def clean_text(text):
-#     return text.strip().lower()
