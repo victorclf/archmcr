@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import sys
 import os
 import csv
 import joblib
+import numpy
 import pandas
 import spacy
 import sklearn
@@ -17,11 +19,24 @@ import sklearn.pipeline
 import sklearn.svm
 import sklearn.tree
 
+# START WORKAROUND https://stackoverflow.com/questions/15063936/csv-error-field-larger-than-field-limit-131072
+maxInt = sys.maxsize
+while True:
+    # decrease the maxInt value by factor 10
+    # as long as the OverflowError occurs.
+
+    try:
+        csv.field_size_limit(maxInt)
+        break
+    except OverflowError:
+        maxInt = int(maxInt/10)
+# END WORKAROUND https://stackoverflow.com/questions/15063936/csv-error-field-larger-than-field-limit-131072
 
 CSV_FIELDS = ['reviewRequestId', 'repository', 'reviewRequestSubmitter', 'reviewId', 'diffCommentId', 'replyId',
-              'replyDiffCommentId', 'type',  'username', 'timestamp', 'text', 'isDesign', 'concept', 'hadToLookAtCode']
+              'replyDiffCommentId', 'type',  'username', 'timestamp', 'text', 'isDesign']
 TRAINING_DATASET_PATH = '../training-data/discussions-sample-1000-annotated.csv'
 DATASET_PATH = '../preprocess-dataset/output/reviews.csv'
+OUTPUT_PATH = 'output/reviews-predicted.csv'
 
 
 def getTokensAndLemmas(nlp, text):
@@ -40,9 +55,9 @@ def loadSpacy():
     return spacy.load('en_core_web_lg')
 
 
-def preprocess(df):
+# def preprocess(df):
     # df = df[~df['username'].isin(['asfbot', 'aurorabot', 'mesos-review', 'mesos-review-windows'])]
-    return df
+    # return df
 
 
 def createTfidfVectorizer(tokenizer):
@@ -300,13 +315,54 @@ def unserializeModels():
     return models
 
 
+'''
+Pre-condition: numbers in row must be int (not str).
+'''
+def getRowFromTrainingDataset(trainingDf, row):
+    # The dataset has no unique row ids so we have to resort to using the natural key to find a row.
+    NATURAL_KEY_FIELDS = ('reviewRequestId', 'repository', 'reviewRequestSubmitter', 'reviewId', 'diffCommentId', 'replyId', 'replyDiffCommentId')
+
+    df = trainingDf
+    cmp = df['reviewRequestId'] == df['reviewRequestId'] # FIXME Use better method to create array filled with true.
+    for k in NATURAL_KEY_FIELDS:
+        if row[k]:
+            cmp = cmp & (df[k] == row[k])
+        else:
+            cmp = cmp & (pandas.isna(df[k]))
+
+    resultDf = df.loc[cmp]
+
+    return dict(resultDf.iloc[0]) if not resultDf.empty else None
+
+
+def classify(classifier, trainingDf, truncateLength=32767):
+    def convertNumbersToInt(row):
+        for k, v in row.items():
+            if k.endswith('Id'):
+                row[k] = int(v) if v else ''
+
+    with open(OUTPUT_PATH, 'w') as fout:
+        dcfout = csv.DictWriter(fout, fieldnames=CSV_FIELDS)
+        dcfout.writeheader()
+
+        with open(DATASET_PATH, 'r') as fin:
+            dcfin = csv.DictReader(x.replace('\0', '') for x in fin)  # ignore NULL bytes, which crash the csv.reader
+            for row in dcfin:
+                convertNumbersToInt(row)
+                if truncateLength > 0:
+                    row['text'] = row['text'][:truncateLength]
+                trainingDfRow = getRowFromTrainingDataset(trainingDf, row)
+                row['isDesign'] = trainingDfRow['isDesign'] if trainingDfRow else classifier.predict((row['text'],))[0]
+                dcfout.writerow(row)
+
+
 def main():
     print('Loading dataset...')
     df = loadTrainingDataset()
-    df = preprocess(df)
 
     spacyNlp = loadSpacy()
     spacyTokenizer = lambda x: getTokensAndLemmas(spacyNlp, x)
+
     tfidfVectorizer = createTfidfVectorizer(spacyTokenizer)
 
     X = df['text']
@@ -316,7 +372,13 @@ def main():
     # searchBestParameters(X, y, tfidfVectorizer)
     # compareBestModels(X, y, tfidfVectorizer)
     # compareEnsembleOfBestModels(X, y, tfidfVectorizer)
-    serializeBestModels(X, y, tfidfVectorizer)
+    # serializeBestModels(X, y, tfidfVectorizer)
+
+    classifier = buildBestModels(tfidfVectorizer)['MLP']
+    print("Fitting model...")
+    classifier.fit(X, y)
+    print("Classifying dataset...")
+    classify(classifier, df)
 
 
 if __name__ == '__main__':
